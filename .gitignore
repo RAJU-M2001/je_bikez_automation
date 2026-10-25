@@ -1,0 +1,23 @@
+# Secrets and local configuration
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Test outputs
+.pytest_cache/
+web_automation/reports/**/*
+!web_automation/reports/**/.gitkeep
+test-results/
+playwright-report/
+*.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
