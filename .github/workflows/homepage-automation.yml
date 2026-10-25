@@ -1,0 +1,48 @@
+name: JE BikeZ Homepage Automation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  homepage-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright
+        run: |
+          python -m playwright install --with-deps chromium
+
+      - name: Run Homepage Automation
+        env:
+          CI: "true"
+          TEST_ENVIRONMENT: prod
+        run: |
+          python -m web_automation.main --test home
+
+      - name: Upload Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: je-bikez-homepage-reports
+          path: web_automation/reports/prod/
+          if-no-files-found: warn
+          retention-days: 14
