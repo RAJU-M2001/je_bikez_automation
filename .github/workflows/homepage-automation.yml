@@ -10,12 +10,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: je-bikez-pages
-  cancel-in-progress: false
 
 jobs:
   homepage-test:
@@ -25,10 +19,6 @@ jobs:
     env:
       CI: "true"
       TEST_ENVIRONMENT: prod
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout Automation Repository
@@ -50,73 +40,8 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: Run JE BikeZ Homepage Test
-        id: homepage_test
         run: |
           python -m web_automation.main --test home
-
-      - name: Prepare HTML Report for GitHub Pages
-        if: always()
-        run: |
-          mkdir -p _site
-
-          REPORT="web_automation/reports/prod/pytest_Report.html"
-
-          if [ -f "$REPORT" ]; then
-            cp "$REPORT" _site/index.html
-            cp "$REPORT" _site/pytest_Report.html
-            echo "HTML report prepared."
-          else
-            cat > _site/index.html <<'HTML'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>JE BikeZ Automation Report</title>
-          </head>
-          <body>
-            <h1>JE BikeZ Homepage Automation</h1>
-            <p>The HTML report was not generated.</p>
-            <p>Check the GitHub Actions logs for details.</p>
-          </body>
-          </html>
-          HTML
-            echo "No HTML report found. Fallback page created."
-          fi
-
-      - name: Capture HTML Report Screenshot
-        id: report_screenshot
-        if: always() && steps.homepage_test.outcome == 'success' && hashFiles('web_automation/reports/prod/pytest_Report.html') != ''
-        continue-on-error: true
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          from playwright.sync_api import sync_playwright
-
-          report = Path(
-              "web_automation/reports/prod/pytest_Report.html"
-          ).resolve()
-
-          output = Path("_site/report-preview.png")
-          output.parent.mkdir(parents=True, exist_ok=True)
-
-          with sync_playwright() as p:
-              browser = p.chromium.launch(headless=True)
-              page = browser.new_page(
-                  viewport={"width": 1440, "height": 1000},
-                  device_scale_factor=1
-              )
-
-              page.goto(report.as_uri(), wait_until="load")
-              page.screenshot(
-                  path=str(output),
-                  full_page=True
-              )
-
-              browser.close()
-
-          print(f"Report screenshot saved: {output}")
-          PY
 
       - name: Upload Automation Reports
         if: always()
@@ -126,174 +51,16 @@ jobs:
           path: |
             web_automation/reports/prod/automation_report.xlsx
             web_automation/reports/prod/pytest_Report.html
-            _site/report-preview.png
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Configure GitHub Pages
+      - name: Notify Slack
         if: always()
-        uses: actions/configure-pages@v5
-
-      - name: Upload HTML Report to GitHub Pages
-        if: always()
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: _site
-
-      - name: Deploy HTML Report
-        id: deployment
-        if: always()
-        uses: actions/deploy-pages@v4
-
-      # Send the visual report preview when tests and deployment succeed.
-      - name: Notify Slack - Test Passed
-        if: always() && steps.homepage_test.outcome == 'success' && steps.deployment.outcome == 'success' && steps.report_screenshot.outcome == 'success'
         uses: slackapi/slack-github-action@v2
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_01 }}
           webhook-type: incoming-webhook
           payload: |
             {
-              "text": "JE BikeZ Homepage Automation: SUCCESS",
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "JE BikeZ | Homepage Automation",
-                    "emoji": true
-                  }
-                },
-                {
-                  "type": "section",
-                  "fields": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Test Status*\n:white_check_mark: *PASSED*"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Branch*\n`${{ github.ref_name }}`"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Repository*\n`${{ github.repository }}`"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Commit*\n`${{ github.sha }}`"
-                    }
-                  ]
-                },
-                {
-                  "type": "divider"
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*HTML Automation Report*\nThe screenshot below previews your generated Playwright HTML report."
-                  }
-                },
-                {
-                  "type": "image",
-                  "image_url": "${{ steps.deployment.outputs.page_url }}report-preview.png",
-                  "alt_text": "JE BikeZ Playwright HTML report screenshot"
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "<${{ steps.deployment.outputs.page_url }}index.html|Open Full HTML Report>"
-                  }
-                },
-                {
-                  "type": "actions",
-                  "elements": [
-                    {
-                      "type": "button",
-                      "text": {
-                        "type": "plain_text",
-                        "text": "View GitHub Actions Run",
-                        "emoji": true
-                      },
-                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                    }
-                  ]
-                },
-                {
-                  "type": "context",
-                  "elements": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "Automated by GitHub Actions | JE BikeZ QA"
-                    }
-                  ]
-                }
-              ]
-            }
-
-      # Notify Slack if the test, screenshot, or Pages deployment fails.
-      - name: Notify Slack - Test or Report Failed
-        if: always() && (steps.homepage_test.outcome != 'success' || steps.deployment.outcome != 'success' || steps.report_screenshot.outcome != 'success')
-        uses: slackapi/slack-github-action@v2
-        with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL_01 }}
-          webhook-type: incoming-webhook
-          payload: |
-            {
-              "text": "JE BikeZ Homepage Automation: FAILED",
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "JE BikeZ | Automation Alert",
-                    "emoji": true
-                  }
-                },
-                {
-                  "type": "section",
-                  "fields": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Homepage Test*\n${{ steps.homepage_test.outcome }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Report Deployment*\n${{ steps.deployment.outcome }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Branch*\n`${{ github.ref_name }}`"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Repository*\n`${{ github.repository }}`"
-                    }
-                  ]
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "Check the workflow logs to identify the issue. If the report was published successfully, <${{ steps.deployment.outputs.page_url }}index.html|open the HTML report>."
-                  }
-                },
-                {
-                  "type": "actions",
-                  "elements": [
-                    {
-                      "type": "button",
-                      "text": {
-                        "type": "plain_text",
-                        "text": "View GitHub Actions Run",
-                        "emoji": true
-                      },
-                      "style": "danger",
-                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                    }
-                  ]
-                }
-              ]
+              "text": "JE BikeZ Homepage Automation: ${{ job.status }}\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nView test results and download reports: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
