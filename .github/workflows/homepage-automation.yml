@@ -21,7 +21,7 @@ jobs:
       TEST_ENVIRONMENT: prod
 
     steps:
-      # 1. Checkout the automation repository
+      # 1. Checkout repository
       - name: Checkout Automation Repository
         uses: actions/checkout@v4
 
@@ -38,19 +38,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 4. Install Playwright and Chromium
+      # 4. Install Playwright Chromium
       - name: Install Playwright Chromium
         run: |
           python -m playwright install --with-deps chromium
 
-      # 5. Run the existing homepage automation
+      # 5. Run homepage automation
       - name: Run JE BikeZ Homepage Test
         id: homepage_test
         continue-on-error: true
         run: |
           python -m web_automation.main --test home
 
-      # 6. Generate a screenshot of the HTML report
+      # 6. Generate screenshot from HTML report
       - name: Capture HTML Report Screenshot
         id: report_screenshot
         if: always()
@@ -88,10 +88,30 @@ jobs:
 
               browser.close()
 
-          print(f"Report screenshot created: {screenshot}")
+          if not screenshot.is_file() or screenshot.stat().st_size == 0:
+              raise RuntimeError("Screenshot was not generated correctly.")
+
+          print(f"Screenshot: {screenshot}")
+          print(f"Size: {screenshot.stat().st_size} bytes")
           PY
 
-      # 7. Upload reports to GitHub Actions artifacts
+      # 7. Verify the generated screenshot
+      - name: Verify Report Screenshot
+        id: verify_screenshot
+        if: always()
+        run: |
+          FILE="web_automation/reports/prod/pytest_Report_preview.png"
+
+          if [ ! -s "$FILE" ]; then
+            echo "::error::Screenshot is missing or empty: $FILE"
+            find web_automation/reports -type f -print || true
+            exit 1
+          fi
+
+          ls -lh "$FILE"
+          file "$FILE"
+
+      # 8. Upload reports to GitHub Actions artifacts
       - name: Upload Automation Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,30 +124,25 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # 8. Upload the screenshot directly to Slack
+      # 9. Upload screenshot to the Slack channel
       - name: Send Report Screenshot to Slack
-        if: >-
-          always() &&
-          steps.report_screenshot.outcome == 'success' &&
-          hashFiles('web_automation/reports/prod/pytest_Report_preview.png') != '' &&
-          env.SLACK_BOT_TOKEN != '' &&
-          env.SLACK_CHANNEL_ID != ''
+        id: slack_upload
+        if: always() && steps.verify_screenshot.outcome == 'success'
         uses: slackapi/slack-github-action@v2
         continue-on-error: true
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
         with:
           method: files.uploadV2
           token: ${{ secrets.SLACK_BOT_TOKEN }}
           payload: |
-            channel_id: ${{ secrets.SLACK_CHANNEL_ID }}
-            file: web_automation/reports/prod/pytest_Report_preview.png
-            filename: pytest_Report_preview.png
-            title: JE BikeZ Homepage Automation Report
-            initial_comment: "JE BikeZ Homepage Automation - HTML report screenshot. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            {
+              "channel_id": "${{ secrets.SLACK_CHANNEL_ID }}",
+              "file": "web_automation/reports/prod/pytest_Report_preview.png",
+              "filename": "pytest_Report_preview.png",
+              "title": "JE BikeZ Homepage Automation Report",
+              "initial_comment": "JE BikeZ Playwright HTML report screenshot. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
 
-      # 9. Keep the existing Slack webhook text notification
+      # 10. Preserve existing Slack webhook notification
       - name: Notify Slack
         if: always()
         uses: slackapi/slack-github-action@v2
@@ -136,20 +151,16 @@ jobs:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_01 }}
           webhook-type: incoming-webhook
           payload: |
-            text: |
-              JE BikeZ Homepage Automation: ${{ steps.homepage_test.outcome }}
-              Screenshot step: ${{ steps.report_screenshot.outcome }}
-              Repository: ${{ github.repository }}
-              Branch: ${{ github.ref_name }}
-              Commit: ${{ github.sha }}
-              Run and download reports: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            {
+              "text": "JE BikeZ Homepage Automation: ${{ steps.homepage_test.outcome }}\nScreenshot generation: ${{ steps.report_screenshot.outcome }}\nScreenshot verification: ${{ steps.verify_screenshot.outcome }}\nSlack upload: ${{ steps.slack_upload.outcome }}\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nView run and download reports: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
 
-      # 10. Fail the workflow if the homepage test failed
+      # 11. Ensure the workflow reflects the actual test result
       - name: Final Test Status
         if: always()
         run: |
           if [ "${{ steps.homepage_test.outcome }}" != "success" ]; then
-            echo "Homepage automation failed."
+            echo "::error::Homepage automation failed."
             exit 1
           fi
 
