@@ -143,6 +143,7 @@ jobs:
           retention-days: 14
 
       # 9. Verify Slack channel access
+      
       - name: Verify Slack Channel Access
         id: slack_channel_check
         if: always()
@@ -155,41 +156,80 @@ jobs:
           import os
           import requests
 
-          token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
-          channel_id = os.environ.get("SLACK_CHANNEL_ID", "").strip()
+          token = os.environ["SLACK_BOT_TOKEN"].strip()
+          channel_id = os.environ["SLACK_CHANNEL_ID"].strip()
 
-          if not token or not channel_id:
-              raise SystemExit(
-                  "SLACK_BOT_TOKEN or SLACK_CHANNEL_ID is missing."
-              )
+          headers = {"Authorization": f"Bearer {token}"}
 
-          response = requests.post(
+          response = requests.get(
               "https://slack.com/api/conversations.info",
-              headers={"Authorization": f"Bearer {token}"},
-              data={"channel": channel_id},
+              headers=headers,
+              params={"channel": channel_id},
               timeout=30,
           )
+          result = response.json()
 
-          try:
-              result = response.json()
-          except ValueError:
+          print("Channel lookup successful:", result.get("ok"))
+          print("Channel lookup error:", result.get("error", "none"))
+
+          if result.get("ok"):
+              print("Channel name:", result["channel"].get("name"))
+              print("Channel ID matches.")
+              raise SystemExit(0)
+
+          if result.get("error") != "channel_not_found":
               raise SystemExit(
-                  f"Slack returned non-JSON response: HTTP "
-                  f"{response.status_code}"
+                  f"Slack API returned: {result.get('error')}"
               )
 
-          print("Slack API ok:", result.get("ok"))
-          print("Slack API error:", result.get("error", "none"))
+          print("Searching channels visible to the bot...")
 
-          if not result.get("ok"):
-              raise SystemExit(
-                  f"Channel verification failed: {result.get('error')}"
+          cursor = None
+          found = False
+
+          while True:
+              params = {
+                  "types": "public_channel,private_channel",
+                  "limit": 200,
+                  "exclude_archived": "true",
+              }
+              if cursor:
+                  params["cursor"] = cursor
+
+              listing = requests.get(
+                  "https://slack.com/api/conversations.list",
+                  headers=headers,
+                  params=params,
+                  timeout=30,
+              ).json()
+
+              if not listing.get("ok"):
+                  print("Channel list error:", listing.get("error"))
+                  raise SystemExit(1)
+
+              for channel in listing.get("channels", []):
+                  if channel.get("name") == "je_report":
+                      print("Found channel name: je_report")
+                      print("Actual channel ID:", channel.get("id"))
+                      print(
+                          "Is private:",
+                          channel.get("is_private", False)
+                      )
+                      found = True
+
+              cursor = (
+                  listing.get("response_metadata", {}).get("next_cursor")
               )
+              if not cursor:
+                  break
 
-          channel = result.get("channel", {})
-          print("Verified channel name:", channel.get("name"))
-          print("Channel ID verified.")
+          if not found:
+              print(
+                  "je_report is not visible to this bot. "
+                  "Check workspace, channel membership, and scopes."
+              )
           PY
+
 
       # 10. Upload screenshot to Slack
       - name: Send Report Screenshot to Slack
