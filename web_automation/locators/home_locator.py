@@ -4,6 +4,7 @@ from typing import Optional
 
 class HomeLocators:
     """Locators for the JE BikeZ Home page."""
+    # test
 
     HOME_PAGE_SECTION = "//section[@class='section top-section pt-100']"
     NAV_MANU = "//div[@class='navbar-container']"
