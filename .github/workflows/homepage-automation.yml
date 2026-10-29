@@ -9,6 +9,9 @@ on:
     branches:
       - main
   workflow_dispatch:
+  repository_dispatch:
+    types:
+      - je_bikez_app_updated
 
 permissions:
   contents: read
