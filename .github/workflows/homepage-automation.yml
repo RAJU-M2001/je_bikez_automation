@@ -27,11 +27,11 @@ jobs:
     steps:
       # 1. Checkout repository
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # 2. Set up Python
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -86,7 +86,11 @@ jobs:
                   device_scale_factor=1
               )
 
-              page.goto(report.as_uri(), wait_until="load", timeout=60000)
+              page.goto(
+                  report.as_uri(),
+                  wait_until="load",
+                  timeout=60000
+              )
               page.screenshot(
                   path=str(screenshot),
                   full_page=True,
@@ -132,7 +136,7 @@ jobs:
       # 8. Upload reports as GitHub artifacts
       - name: Upload Automation Reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: je-bikez-automation-reports
           path: |
@@ -143,7 +147,6 @@ jobs:
           retention-days: 14
 
       # 9. Verify Slack channel access
-      
       - name: Verify Slack Channel Access
         id: slack_channel_check
         if: always()
@@ -167,6 +170,7 @@ jobs:
               params={"channel": channel_id},
               timeout=30,
           )
+          response.raise_for_status()
           result = response.json()
 
           print("Channel lookup successful:", result.get("ok"))
@@ -193,15 +197,18 @@ jobs:
                   "limit": 200,
                   "exclude_archived": "true",
               }
+
               if cursor:
                   params["cursor"] = cursor
 
-              listing = requests.get(
+              listing_response = requests.get(
                   "https://slack.com/api/conversations.list",
                   headers=headers,
                   params=params,
                   timeout=30,
-              ).json()
+              )
+              listing_response.raise_for_status()
+              listing = listing_response.json()
 
               if not listing.get("ok"):
                   print("Channel list error:", listing.get("error"))
@@ -220,6 +227,7 @@ jobs:
               cursor = (
                   listing.get("response_metadata", {}).get("next_cursor")
               )
+
               if not cursor:
                   break
 
@@ -228,14 +236,14 @@ jobs:
                   "je_report is not visible to this bot. "
                   "Check workspace, channel membership, and scopes."
               )
+              raise SystemExit(1)
           PY
-
 
       # 10. Upload screenshot to Slack
       - name: Send Report Screenshot to Slack
         id: slack_upload
         if: always() && steps.verify_screenshot.outcome == 'success' && steps.slack_channel_check.outcome == 'success'
-        uses: slackapi/slack-github-action@v2
+        uses: slackapi/slack-github-action@v3
         continue-on-error: true
         with:
           method: files.uploadV2
@@ -266,7 +274,7 @@ jobs:
       # 12. Send text notification through the existing webhook
       - name: Send Slack Text Notification
         if: always()
-        uses: slackapi/slack-github-action@v2
+        uses: slackapi/slack-github-action@v3
         continue-on-error: true
         with:
           webhook-type: incoming-webhook
